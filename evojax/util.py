@@ -33,7 +33,7 @@ def get_params_format_fn(init_params: FrozenDict) -> Tuple[int, Callable]:
     def params_format_fn(params: jnp.ndarray) -> FrozenDict:
         params = tree_util.tree_multimap(
             lambda x, y: x.reshape(y.shape),
-            jnp.split(params, params_sizes)[:-1],
+            jnp.split(params, params_sizes, axis=-1)[:-1],
             flat)
         return tree_util.tree_unflatten(tree, params)
 

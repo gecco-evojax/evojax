@@ -27,7 +27,10 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 from jax import random
-from jax.experimental import optimizers
+try:
+    from jax.example_libraries import optimizers
+except ModuleNotFoundError:
+    from jax.experimental import optimizers
 
 from evojax.algo.base import ESAlgorithm
 from evojax.util import create_logger
