@@ -22,6 +22,7 @@ from typing import Tuple
 
 import jax
 import jax.numpy as jnp
+from jax import random
 from flax.struct import dataclass
 
 from evojax.task.base import VectorizedTask
@@ -37,21 +38,17 @@ class State(TaskState):
 class CharacterTable(object):
     """Encode/decodes between strings and integer representations."""
 
-    def __init__(self, chars):
-        self.pad_id = 0
-        self.eos_id = 1
-        self._chars = sorted(set(chars))
+    def __init__(self):
+        self._chars = '0123456789+= '
+        self.pad_id = len(self._chars)
+        self.eos_id = self.pad_id + 1
         self.vocab_size = len(self._chars) + 2
-        self._char_indices = dict(
-            (ch, idx + 2) for idx, ch in enumerate(self._chars))
         self._indices_char = dict(
-            (idx + 2, ch) for idx, ch in enumerate(self._chars))
+            (idx, ch) for idx, ch in enumerate(self._chars))
         self._indices_char[self.pad_id] = '_'
 
-    def encode(self, inputs):
-        """Encode from string to list of integers."""
-        return jnp.array(
-            [self._char_indices[char] for char in inputs] + [self.eos_id])
+    def encode(self, inputs: jnp.ndarray) -> jnp.ndarray:
+        return jnp.concatenate([inputs, jnp.array([self.eos_id])])
 
     def decode(self, inputs):
         """Decode from list of integers to string."""
@@ -71,48 +68,60 @@ class Seq2seqTask(VectorizedTask):
                  max_len_query_digit: int = 3,
                  test: bool = False):
 
-        char_table = CharacterTable('0123456789+= ')
+        char_table = CharacterTable()
         max_input_len = max_len_query_digit + 2 + 2
         max_output_len = max_len_query_digit + 3
         max_num = pow(10, max_len_query_digit)
         self.obs_shape = tuple([max_input_len, char_table.vocab_size])
         self.act_shape = tuple([max_output_len, char_table.vocab_size])
         self.max_steps = 1
-        npr = np.random.RandomState(0)
 
         def encode_onehot(batch_inputs, max_len):
             def encode_str(s):
                 tokens = char_table.encode(s)
                 org_len = len(tokens)
-                assert org_len <= max_len, '{}'.format(s)
-                tokens = np.pad(
+                tokens = jnp.pad(
                     tokens, [(0, max_len - org_len)], mode='constant')
                 return jax.nn.one_hot(
                     tokens, char_table.vocab_size, dtype=jnp.float32)
-            return np.array([encode_str(inp) for inp in batch_inputs])
+            return jnp.array([encode_str(inp) for inp in batch_inputs])
 
         def decode_onehot(batch_inputs):
             return np.array(list(map(
                 lambda x: char_table.decode(x.argmax(axis=-1)), batch_inputs)))
         self.decode_embeddings = decode_onehot
 
-        def next_batch():
-            add_op1 = npr.randint(0, 100, batch_size)
-            add_op2 = npr.randint(0, max_num, batch_size)
+        def breakdown_int(n):
+            return jnp.where(
+                n == 0,
+                jnp.zeros(max_len_query_digit),
+                jnp.array([(n // (10**i)) % 10
+                           for i in range(max_len_query_digit - 1, -1, -1)]))
+
+        def get_batch_data(key):
+            keys = random.split(key, 2)
+            add_op1 = random.randint(
+                keys[0], minval=0, maxval=100, shape=(batch_size,))
+            add_op2 = random.randint(
+                keys[1], minval=0, maxval=max_num, shape=(batch_size,))
             for op1, op2 in zip(add_op1, add_op2):
-                inputs = '{0:d}+{1:d}'.format(op1, op2)
-                outputs = '={0:d}'.format(op1 + op2)
+                inputs = jnp.concatenate([
+                    breakdown_int(op1)[1:],
+                    jnp.array([10, ]),   # 10 is '+'
+                    breakdown_int(op2)], axis=0)
+                outputs = jnp.concatenate([
+                    jnp.array([11, ]),  # 11 is '='
+                    breakdown_int(op1 + op2)], axis=0)
                 yield inputs, outputs
 
         def reset_fn(key):
-            inputs, outputs = zip(*next_batch())
+            inputs, outputs = zip(*get_batch_data(key[0]))
             batch_data = encode_onehot(inputs, max_input_len)
             batch_labels = encode_onehot(outputs, max_output_len)
             return State(
                 obs=jnp.repeat(batch_data[None, :], key.shape[0], axis=0),
                 labels=jnp.repeat(batch_labels[None, :], key.shape[0], axis=0))
-        # Don't jit compile reset_fn, because xla does not support strings.
-        self._reset_fn = reset_fn
+        self._reset_fn = jax.jit(reset_fn)
 
         def get_sequence_lengths(sequence_batch):
             # sequence_batch.shape = (batch_size, seq_length, vocab_size)

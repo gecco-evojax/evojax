@@ -36,21 +36,17 @@ from evojax.util import get_params_format_fn
 class CharacterTable(object):
     """Encode/decodes between strings and integer representations."""
 
-    def __init__(self, chars):
-        self.pad_id = 0
-        self.eos_id = 1
-        self._chars = sorted(set(chars))
+    def __init__(self):
+        self._chars = '0123456789+= '
+        self.pad_id = len(self._chars)
+        self.eos_id = self.pad_id + 1
         self.vocab_size = len(self._chars) + 2
-        self._char_indices = dict(
-            (ch, idx + 2) for idx, ch in enumerate(self._chars))
         self._indices_char = dict(
-            (idx + 2, ch) for idx, ch in enumerate(self._chars))
+            (idx, ch) for idx, ch in enumerate(self._chars))
         self._indices_char[self.pad_id] = '_'
 
-    def encode(self, inputs):
-        """Encode from string to list of integers."""
-        return jnp.array(
-            [self._char_indices[char] for char in inputs] + [self.eos_id])
+    def encode(self, inputs: jnp.ndarray) -> jnp.ndarray:
+        return jnp.concatenate([inputs, jnp.array([self.eos_id])])
 
     def decode(self, inputs):
         """Decode from list of integers to string."""
@@ -62,7 +58,7 @@ class CharacterTable(object):
         return ''.join(chars)
 
 
-char_table = CharacterTable('0123456789+= ')
+char_table = CharacterTable()
 
 
 class EncoderLSTM(nn.Module):
@@ -196,12 +192,13 @@ class Seq2seqPolicy(PolicyNetwork):
         params = model.init({'params': key, 'lstm': key},
                             encoder_shape, decoder_shape)['params']
         self.num_params, format_params_fn = get_params_format_fn(params)
-        self._logger.info('CNN.num_params = {}'.format(self.num_params))
+        self._logger.info(
+            'Seq2seqPolicy.num_params = {}'.format(self.num_params))
         self._format_params_fn = jax.vmap(format_params_fn)
 
         def forward_fn(p, o):
             x = jax.nn.one_hot(
-                char_table.encode('=')[0:1], char_table.vocab_size,
+                char_table.encode(jnp.array([11]))[0:1], char_table.vocab_size,
                 dtype=jnp.float32)
             x = jnp.tile(x, (o.shape[0], max_output_len, 1))
             logits, predictions = model.apply({'params': p}, o, x)
