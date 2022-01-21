@@ -1,4 +1,4 @@
-# EvoJAX: Hardware-Accelerated Evolution Strategies
+# EvoJAX: Hardware-Accelerated Neuroevolution
 
 This repository contains the implementation of EvoJAX for the GECCO 2022 submission.
 
@@ -7,7 +7,7 @@ This repository contains the implementation of EvoJAX for the GECCO 2022 submiss
 EvoJAX has 3 major components, which we expect the users to extend.
 1. **Evolution Strategies** All ES algorithms should implement the
 `evojax.algo.base.ESAlgorithm` interface and reside in `evojax/algo/`.
-We current provide [PGPE](https://people.idsia.ch/~juergen/nn2010.pdf), with more coming soon.
+We currently provide [PGPE](https://people.idsia.ch/~juergen/nn2010.pdf), with more coming soon.
 2. **Policy Networks** All neural networks should implement the
 `evojax.policy.base.PolicyNetwork` interface and be saved in `evojax/policy/`.
 In this repo, we give example implementations of the MLP, Convnet and Seq2Seq models.
